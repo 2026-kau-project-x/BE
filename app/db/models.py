@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, Integer, String
+from sqlalchemy import Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
+from app.db.types import UtcDateTime
 
 
 def _now() -> datetime:
@@ -25,5 +26,8 @@ class Trip(Base):
     # AI가 제안한 랑데부(합류) 지점. 없으면 None
     rendezvous_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     rendezvous_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    # 배정된 이동지원차량 (가용 차량이 없으면 None). 0002 마이그레이션에서 추가
+    vehicle_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # UtcDateTime: SQLite 에서도 타임존(UTC)이 유지되도록 (app/db/types.py)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)

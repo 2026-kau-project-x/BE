@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     ai_service_url: str = ""
     # AI 응답 대기 한도(초). 넘으면 랑데부 없이 이동을 생성한다
     ai_timeout_s: float = 3.0
+    # 비어 있으면 인증 끔. 값이 있으면 /trips·/vehicles 에 X-API-Key 헤더 필요 (app/core/security.py)
+    api_key: str = ""
     # 브라우저(Flutter 웹) 호출 허용 Origin 정규식. 기본값은 로컬 개발 서버(포트 무관)만 허용
     cors_origin_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 

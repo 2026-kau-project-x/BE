@@ -32,6 +32,17 @@ def test_sends_optimize_request_and_parses_rendezvous():
     }
 
 
+def test_sends_vehicle_when_assigned():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"rendezvous": {"lat": 1.0, "lng": 2.0}})
+
+    _client(handler).suggest_rendezvous(ORIGIN, DEST, (37.57, 127.01))
+    assert seen["body"]["vehicle"] == {"lat": 37.57, "lng": 127.01}
+
+
 @pytest.mark.parametrize(
     "handler",
     [

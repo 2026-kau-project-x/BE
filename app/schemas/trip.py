@@ -32,5 +32,6 @@ class TripOut(BaseModel):
     dest_name: str | None
     rendezvous_lat: float | None
     rendezvous_lng: float | None
+    vehicle_id: str | None
     created_at: datetime
     updated_at: datetime

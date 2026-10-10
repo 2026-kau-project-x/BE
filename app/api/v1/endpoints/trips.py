@@ -6,14 +6,24 @@ from app.db.session import get_db
 from app.schemas.trip import TripCreate, TripOut, TripStatusUpdate
 from app.services.ai_client import AiClient, get_ai_client
 from app.services.trip_state import InvalidTransition, transition
+from app.services.vehicle_client import VehicleClient, get_vehicle_client, nearest_available
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
 
 @router.post("", response_model=TripOut, status_code=201)
-def create_trip(body: TripCreate, db: Session = Depends(get_db), ai: AiClient = Depends(get_ai_client)):
+def create_trip(
+    body: TripCreate,
+    db: Session = Depends(get_db),
+    ai: AiClient = Depends(get_ai_client),
+    vehicles: VehicleClient = Depends(get_vehicle_client),
+):
+    # 출발지에서 가장 가까운 가용 차량을 배정하고, 그 차량 위치로 AI 에 합류 지점을 묻는다
+    vehicle = nearest_available(vehicles.list_vehicles(body.origin.lat, body.origin.lng), body.origin.lat, body.origin.lng)
     rendezvous = ai.suggest_rendezvous(
-        (body.origin.lat, body.origin.lng), (body.destination.lat, body.destination.lng)
+        (body.origin.lat, body.origin.lng),
+        (body.destination.lat, body.destination.lng),
+        (vehicle.lat, vehicle.lng) if vehicle else None,
     )
     r_lat, r_lng = rendezvous if rendezvous else (None, None)
     trip = Trip(
@@ -24,6 +34,7 @@ def create_trip(body: TripCreate, db: Session = Depends(get_db), ai: AiClient = 
         dest_name=body.destination_name,
         rendezvous_lat=r_lat,
         rendezvous_lng=r_lng,
+        vehicle_id=vehicle.id if vehicle else None,
     )
     db.add(trip)
     db.commit()

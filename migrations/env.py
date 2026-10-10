@@ -13,12 +13,23 @@ from sqlalchemy import create_engine, pool
 from app.core.config import settings
 from app.db import models  # noqa: F401  (모델을 import 해야 Base.metadata 에 테이블이 등록된다)
 from app.db.session import Base
+from app.db.types import UtcDateTime
 
 config = context.config
 if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+
+def render_item(type_, obj, autogen_context):
+    """autogenerate 가 커스텀 타입 UtcDateTime 을 마이그레이션 파일에 적을 때 표준 타입으로 적게 한다.
+    (마이그레이션 파일이 app 코드를 import 하지 않아야 나중에 코드가 바뀌어도 과거 마이그레이션이 깨지지 않는다)"""
+    if type_ == "type" and isinstance(obj, UtcDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
 url = config.get_main_option("sqlalchemy.url") or settings.database_url
 # SQLite 는 ALTER TABLE 지원이 빈약해서 "테이블 복사 후 교체" 방식(batch)으로 변경해야 한다
 render_as_batch = url.startswith("sqlite")
@@ -26,7 +37,13 @@ render_as_batch = url.startswith("sqlite")
 
 def run_migrations_offline() -> None:
     """DB 연결 없이 SQL 문만 출력 (`alembic upgrade head --sql`)."""
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True, render_as_batch=render_as_batch)
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        render_as_batch=render_as_batch,
+        render_item=render_item,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
@@ -34,7 +51,12 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     engine = create_engine(url, poolclass=pool.NullPool)
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=render_as_batch)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=render_as_batch,
+            render_item=render_item,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
