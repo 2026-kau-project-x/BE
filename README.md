@@ -8,13 +8,14 @@ AI 서비스는 별도 리포(`AI`)이며, 외부에는 BE만 공개하고 AI는
 app/
   main.py            앱 진입점, CORS(Flutter 웹)
   core/config.py     환경설정 (.env / 환경변수)
-  api/v1/            라우터 (endpoints/health, trips)
+  core/security.py   API 키 인증 (X-API-Key, 미설정 시 꺼짐)
+  api/v1/            라우터 (endpoints/health, trips, vehicles)
   schemas/           요청·응답 모델 (pydantic)
-  services/          도메인 로직 (trip_state 상태머신, ai_client)
-  db/                SQLAlchemy 세션·모델 (SQLite → Postgres 이전 예정)
+  services/          도메인 로직 (trip_state 상태머신, ai_client, vehicle_client)
+  db/                SQLAlchemy 세션·모델·UtcDateTime (SQLite / Postgres 모두 지원)
 migrations/          Alembic 마이그레이션 (versions/0001_create_trips.py …)
 tests/               pytest (conftest.py 에 공용 픽스처)
-docker-compose.yml   BE + AI 로컬 통합 실행
+docker-compose.yml   BE + AI + Postgres 로컬 통합 실행
 ```
 
 ## 실행
@@ -30,7 +31,11 @@ pytest
 
 ### AI 서비스와 같이 띄우기
 - 직접 실행: AI 리포에서 `uvicorn app.main:app --port 8001` → BE `.env` 에 `AI_SERVICE_URL=http://localhost:8001`
-- Docker: AI 리포를 `../AI` 에 clone 한 뒤 `docker compose up --build`
+- Docker: AI 리포를 `../AI` 에 clone 한 뒤 `docker compose up --build` (Postgres 포함, CI 에서 매 푸시마다 같은 구성으로 통합 테스트)
+
+### Postgres 로 직접 실행
+`.env` 의 `DATABASE_URL=postgresql+psycopg://사용자:비밀번호@호스트:5432/DB이름` → `alembic upgrade head`.
+마이그레이션은 SQLite·Postgres 공통이며 CI 가 두 DB 모두에서 검사한다.
 
 ## DB 마이그레이션 (Alembic)
 모델(`app/db/models.py`)을 바꿨으면:
@@ -44,18 +49,27 @@ alembic upgrade head
 ## API (v1)
 | Method | Path | 설명 |
 |---|---|---|
-| GET | `/api/v1/health` | 헬스체크 |
-| POST | `/api/v1/trips` | 이동 생성 (AI `/optimize` 로 랑데부 지점 제안) |
+| GET | `/api/v1/health` | 헬스체크 (인증 없음) |
+| POST | `/api/v1/trips` | 이동 생성 (가까운 가용 차량 배정 + AI `/optimize` 로 랑데부 지점 제안) |
 | GET | `/api/v1/trips/{id}` | 이동 조회 |
 | PATCH | `/api/v1/trips/{id}/status` | 상태 전이 (허용되지 않으면 409) |
+| GET | `/api/v1/vehicles?lat=&lng=` | 주변 이동지원차량 목록 (현재 Dummy) |
+
+`API_KEY` 를 설정하면 health 를 제외한 모든 요청에 `X-API-Key` 헤더가 필요하다 (틀리면 401).
+앱에 넣는 키라 "아무나 호출"만 막는 수준이며, Phase 4 에서 계정 기반 인증으로 교체한다.
+시간 필드(`created_at` 등)는 DB 종류와 무관하게 항상 UTC(`…Z`)로 응답한다.
 
 상태: `REQUESTED → WALKING ⇄ WAITING → RENDEZVOUS → COMPLETED` (각 단계에서 `CANCELLED` 가능)
 
 ### AI 연동 동작
 - `AI_SERVICE_URL` 비어 있음 → `MockAiClient` (목적지 근처 고정 오프셋)
-- 설정됨 → `HttpAiClient` 가 `POST {AI}/api/v1/optimize` 호출 (`walker`=출발지, `destination`=목적지)
+- 설정됨 → `HttpAiClient` 가 `POST {AI}/api/v1/optimize` 호출 (`walker`=출발지, `destination`=목적지, `vehicle`=배정 차량 위치)
 - AI 오류·타임아웃(기본 3초) → **이동 생성은 성공**, `rendezvous_lat/lng` 만 `null` (안전 우선: AI 장애가 이동을 막지 않음)
-- 차량 위치는 Dummy Vehicle API 연동 전이라 아직 보내지 않음 → AI 는 목적지를 랑데부로 반환
+- 가용 차량이 없으면 `vehicle` 생략 → AI 는 목적지를 랑데부로 반환, `vehicle_id` 는 `null`
+
+### 차량 (Dummy)
+`DummyVehicleClient` 는 요청 위치 기준 고정 오프셋에 차량 3대(1대는 운행 중)를 만든다. 실제 관제 API 가 생기면
+`VehicleClient` 프로토콜을 지키는 HTTP 클라이언트를 추가하고 `get_vehicle_client` 만 바꾸면 된다.
 
 ## 미구현 (다음 단계)
-- 인증, Dummy Vehicle API 연동(차량 위치 → `/optimize` 의 `vehicle`), Postgres 전환
+- 계정 기반 인증(사용자·보호자·운전자), 실제 차량 관제 API, 이동 중 위치 보고(`POST /trips/{id}/location`)
