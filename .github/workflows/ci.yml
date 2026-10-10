@@ -1,4 +1,4 @@
-# develop/main 푸시와 PR 마다 pytest 를 돌린다. 실패하면 PR 에 빨간 X 가 뜬다.
+# develop/main 푸시와 PR 마다 테스트를 돌린다. 실패하면 PR 에 빨간 X 가 뜬다.
 name: CI
 
 on:
@@ -9,27 +9,53 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # 마이그레이션을 실제 Postgres 에도 적용해 본다 (tests/test_migrations.py 가 TEST_DATABASE_URL 사용)
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: projectx
+          POSTGRES_PASSWORD: projectx-ci
+          POSTGRES_DB: projectx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U projectx" --health-interval 2s --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://projectx:projectx-ci@localhost:5432/projectx
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12" # Dockerfile 과 같은 버전
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
 
-  docker:
-    # Dockerfile 이 실제로 빌드·기동되는지 확인 (컨테이너를 띄우고 /health 응답까지 본다)
+  compose:
+    # BE + AI + Postgres 를 docker compose 로 띄워 실제 이동 생성까지 확인하는 통합 테스트.
+    # Dockerfile 빌드·기동(마이그레이션 포함)·BE→AI 호출·차량 배정을 한 번에 검증한다.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t px-be .
-      - run: docker run -d --name px-be -p 8000:8000 px-be
-      - run: |
-          for i in $(seq 1 30); do
-            curl -sf localhost:8000/api/v1/health && exit 0
-            sleep 1
-          done
-          docker logs px-be
-          exit 1
+        with:
+          path: BE
+      - uses: actions/checkout@v4
+        with:
+          repository: 2026-kau-project-x/AI
+          ref: develop
+          path: AI
+      - run: docker compose up -d --build
+        working-directory: BE
+      - name: 이동 생성 → 차량 배정·AI 합류 지점 확인
+        working-directory: BE
+        run: |
+          for i in $(seq 1 60); do curl -sf localhost:8000/api/v1/health && break; sleep 1; done
+          resp=$(curl -sf -X POST localhost:8000/api/v1/trips -H 'Content-Type: application/json' \
+            -d '{"origin":{"lat":37.55,"lng":126.99},"destination":{"lat":37.56,"lng":127.0}}')
+          echo "$resp"
+          echo "$resp" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["vehicle_id"] and d["rendezvous_lat"] is not None, d'
+      - if: failure()
+        run: docker compose logs
+        working-directory: BE

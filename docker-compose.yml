@@ -1,22 +1,36 @@
-# 로컬 통합 실행: BE(:8000) + AI(:8001). AI 리포가 BE 옆 폴더(../AI)에 clone 되어 있어야 한다.
+# 로컬 통합 실행: BE(:8000) + AI(:8001) + Postgres. AI 리포가 BE 옆 폴더(../AI)에 clone 되어 있어야 한다.
 #   docker compose up --build    →  http://localhost:8000/docs
-# AI 는 외부에 포트를 열지 않고 compose 내부망으로만 BE 가 호출한다 (AWS 의 app-sg 구조와 동일).
+# AI·DB 는 외부에 포트를 열지 않고 compose 내부망으로만 BE 가 접근한다 (AWS 의 app-sg / db-sg 구조와 동일).
+# 아래 DB 비밀번호는 로컬 전용 값이다. 운영(Phase 4)은 Secrets Manager 에서 주입한다.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: projectx
+      POSTGRES_PASSWORD: projectx-local
+      POSTGRES_DB: projectx
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U projectx"]
+      interval: 2s
+      retries: 15
   be:
     build: .
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: sqlite:////data/projectx.db
+      DATABASE_URL: postgresql+psycopg://projectx:projectx-local@db:5432/projectx
       AI_SERVICE_URL: http://ai:8001
-    volumes:
-      - be-data:/data
     depends_on:
-      - ai
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_started
   ai:
     build: ../AI
     expose:
       - "8001"
 
 volumes:
-  be-data:
+  db-data:
