@@ -1,33 +1,3 @@
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.db.session import Base, get_db
-from app.main import app
-
-
-@pytest.fixture()
-def client():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-
-    def override_db():
-        db = Session()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_db
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
 BODY = {
     "origin": {"lat": 37.55, "lng": 126.99},
     "destination": {"lat": 37.56, "lng": 127.0},
@@ -63,3 +33,12 @@ def test_invalid_transition_returns_409(client):
 
 def test_trip_not_found(client):
     assert client.get("/api/v1/trips/999").status_code == 404
+
+
+def test_cors_allows_local_flutter_web_only(client):
+    # Flutter 웹 개발 서버는 임의 포트(localhost:xxxxx)에서 뜬다
+    preflight = {"Access-Control-Request-Method": "POST"}
+    ok = client.options("/api/v1/trips", headers={"Origin": "http://localhost:53211", **preflight})
+    assert ok.headers.get("access-control-allow-origin") == "http://localhost:53211"
+    other = client.options("/api/v1/trips", headers={"Origin": "https://example.com", **preflight})
+    assert "access-control-allow-origin" not in other.headers

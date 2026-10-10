@@ -8,8 +8,12 @@ class Settings(BaseSettings):
 
     app_env: str = "local"
     database_url: str = "sqlite:///./projectx.db"
-    # 비어 있으면 AI 호출 대신 MockAiClient 사용 (Phase 4에서 내부망 주소로 교체)
+    # 비어 있으면 AI 호출 대신 MockAiClient 사용. 로컬은 http://localhost:8001, Phase 4는 내부망 주소
     ai_service_url: str = ""
+    # AI 응답 대기 한도(초). 넘으면 랑데부 없이 이동을 생성한다
+    ai_timeout_s: float = 3.0
+    # 브라우저(Flutter 웹) 호출 허용 Origin 정규식. 기본값은 로컬 개발 서버(포트 무관)만 허용
+    cors_origin_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
 
 settings = Settings()

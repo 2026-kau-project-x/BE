@@ -12,7 +12,10 @@ router = APIRouter(prefix="/trips", tags=["trips"])
 
 @router.post("", response_model=TripOut, status_code=201)
 def create_trip(body: TripCreate, db: Session = Depends(get_db), ai: AiClient = Depends(get_ai_client)):
-    r_lat, r_lng = ai.suggest_rendezvous(body.destination.lat, body.destination.lng)
+    rendezvous = ai.suggest_rendezvous(
+        (body.origin.lat, body.origin.lng), (body.destination.lat, body.destination.lng)
+    )
+    r_lat, r_lng = rendezvous if rendezvous else (None, None)
     trip = Trip(
         origin_lat=body.origin.lat,
         origin_lng=body.origin.lng,
